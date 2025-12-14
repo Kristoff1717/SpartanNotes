@@ -1,0 +1,234 @@
+import tkinter as tk
+from tkinter import messagebox, simpledialog
+
+# =====================================================
+# ================= MYSQL DATABASE ====================
+# =====================================================
+
+import mysql.connector
+
+def get_connection():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="",      # add password if you set one
+        database="spartan_notes"
+    )
+
+def get_notes():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, title FROM notes")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def get_note_content(note_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT content FROM notes WHERE id=%s", (note_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else ""
+
+def add_note(title):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO notes (title, content) VALUES (%s, '')",
+        (title,)
+    )
+    conn.commit()
+    conn.close()
+
+def save_note(note_id, content):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE notes SET content=%s WHERE id=%s",
+        (content, note_id)
+    )
+    conn.commit()
+    conn.close()
+
+def delete_note(note_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM notes WHERE id=%s", (note_id,))
+    conn.commit()
+    conn.close()
+
+
+
+# =====================================================
+# ================= MAIN APPLICATION ==================
+# =====================================================
+
+class SpartanNotesApp:
+
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Spartan Notes")
+        self.root.geometry("1000x600")
+
+        self.dark_mode = False
+        self.current_note_id = None
+
+        self.create_ui()
+        self.refresh_notes()
+
+    # =================================================
+    # ====================== UI =======================
+    # =================================================
+
+    def create_ui(self):
+        self.root.configure(bg="#f0f0f0")
+
+        # -------- SIDEBAR -------- #
+        self.sidebar = tk.Frame(self.root, width=300, bg="#FF6347")
+        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack_propagate(False)
+
+        # -------- LOGO / TITLE -------- #
+        header = tk.Frame(self.sidebar, bg="#FF6347")
+        header.pack(pady=20)
+
+        logo = tk.Label(header, text="🛡️", font=("Arial", 26), bg="#FF6347")
+        logo.pack(side="left")
+
+        title = tk.Label(
+            header,
+            text="SPARTAN NOTES",
+            font=("Arial", 18, "bold"),
+            fg="#8B0000",
+            bg="#FF6347"
+        )
+        title.pack(side="left", padx=10)
+
+        # -------- NOTES LIST -------- #
+        self.notes_list = tk.Listbox(
+            self.sidebar,
+            font=("Arial", 12),
+            bg="#8B0000",
+            fg="white",
+            selectbackground="#FFA07A",
+            activestyle="none",
+            bd=0,
+            highlightthickness=0
+        )
+        self.notes_list.pack(fill="both", expand=True, padx=15, pady=10)
+        self.notes_list.bind("<<ListboxSelect>>", self.open_note)
+
+        # -------- SIDEBAR BUTTONS -------- #
+        tk.Button(
+            self.sidebar,
+            text="+ New Note",
+            command=self.new_note,
+            bg="#8B0000",
+            fg="white"
+        ).pack(fill="x", padx=20, pady=5)
+
+        tk.Button(
+            self.sidebar,
+            text="🗑 Delete Note",
+            command=self.remove_note,
+            bg="#8B0000",
+            fg="white"
+        ).pack(fill="x", padx=20, pady=5)
+
+        tk.Button(
+            self.sidebar,
+            text="🌙 Dark Mode",
+            command=self.toggle_dark,
+            bg="#8B0000",
+            fg="white"
+        ).pack(fill="x", padx=20, pady=5)
+
+        # -------- EDITOR AREA -------- #
+        self.editor_frame = tk.Frame(self.root, bg="#f8f8f8")
+        self.editor_frame.pack(side="right", expand=True, fill="both")
+
+        self.text = tk.Text(
+            self.editor_frame,
+            font=("Arial", 12),
+            wrap="word"
+        )
+        self.text.pack(expand=True, fill="both", padx=10, pady=10)
+
+        tk.Button(
+            self.editor_frame,
+            text="💾 Save Note",
+            command=self.save_current_note,
+            bg="#4CAF50",
+            fg="white"
+        ).pack(fill="x", padx=10, pady=5)
+
+        self.apply_theme()
+
+    # =================================================
+    # ================= NOTE CRUD =====================
+    # =================================================
+
+    def refresh_notes(self):
+        self.notes_list.delete(0, "end")
+        self.notes = get_notes()
+        for note in self.notes:
+            self.notes_list.insert("end", note[1])
+
+    def new_note(self):
+        title = simpledialog.askstring("New Note", "Enter note title:")
+        if title:
+            add_note(title)
+            self.refresh_notes()
+
+    def open_note(self, event):
+        if not self.notes_list.curselection():
+            return
+        index = self.notes_list.curselection()[0]
+        self.current_note_id = self.notes[index][0]
+
+        content = get_note_content(self.current_note_id)
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", content)
+
+    def save_current_note(self):
+        if self.current_note_id is None:
+            return
+        content = self.text.get("1.0", "end-1c")
+        save_note(self.current_note_id, content)
+        messagebox.showinfo("Saved", "Note saved successfully!")
+
+    def remove_note(self):
+        if self.current_note_id is None:
+            return
+        if messagebox.askyesno("Delete Note", "Are you sure?"):
+            delete_note(self.current_note_id)
+            self.current_note_id = None
+            self.text.delete("1.0", "end")
+            self.refresh_notes()
+
+    # =================================================
+    # ================= THEME =========================
+    # =================================================
+
+    def toggle_dark(self):
+        self.dark_mode = not self.dark_mode
+        self.apply_theme()
+
+    def apply_theme(self):
+        if self.dark_mode:
+            self.editor_frame.configure(bg="#2b2b2b")
+            self.text.configure(bg="#3a3a3a", fg="white", insertbackground="white")
+        else:
+            self.editor_frame.configure(bg="#f8f8f8")
+            self.text.configure(bg="white", fg="black", insertbackground="black")
+
+# =====================================================
+# ===================== START APP =====================
+# =====================================================
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    SpartanNotesApp(root)
+    root.mainloop()
+
